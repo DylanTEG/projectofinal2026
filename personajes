@@ -1,0 +1,24 @@
+void setup(){
+  size(500, 500);
+}
+
+
+
+void draw(){
+  noStroke();
+  
+  //rojo
+  fill(#FF2E2E);
+  rect(270, 250, 150, 150, 16); // Bordes redondeados
+  fill(#FFF7F7);
+  rect(270, 330, 60, 30); // Bordes redondeados
+  rect(360, 330, 60, 30); // Bordes redondeados
+  
+  //azul
+  fill(#1F33FF);
+  circle(170, 325, 150);
+  fill(#FFF7F7);
+  ellipse(140, 310, 70, 40);
+  ellipse(200, 310, 70, 40);
+
+}
