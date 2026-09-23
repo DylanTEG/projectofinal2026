@@ -16,7 +16,7 @@ int limiteTiempo = 10000; // 10 segundos
 int[][] lineasGanadoras = {
   {0, 1, 2}, {3, 4, 5}, {6, 7, 8}, // Filas
   {0, 3, 6}, {1, 4, 7}, {2, 5, 8}, // Columnas
-  {0, 4, 8}, {2, 4, 6}             // Diagonales
+  {0, 4, 8}, {2, 4, 6}              // Diagonales
 };
 
 // Variables para animación de personajes
@@ -30,13 +30,14 @@ float gravedad = 1.2;
 float btnX, btnY, btnW, btnH;
 
 void setup() {
-  size(500, 500);
+  size(900, 500);
   rectMode(CORNER);
   
-  btnX = width/2 - 60;
-  btnY = 240;
-  btnW = 120;
-  btnH = 40;
+  // Botón centrado vertical y horizontalmente sobre la interfaz
+  btnW = 140;
+  btnH = 45;
+  btnX = width/2 - btnW/2;
+  btnY = height/2 - btnH/2;
   
   inicializarJuego();
 }
@@ -44,7 +45,7 @@ void setup() {
 void draw() {
   background(25, 28, 40);
   
-  // Dibujar tablero (reubicado arriba)
+  // Dibujar tablero centrado
   for (int i = 0; i < tablero.length; i++) {
     tablero[i].mostrar();
   }
@@ -52,43 +53,44 @@ void draw() {
   // Lógica de juego y HUD
   if (estadoJuego == 0) {
     int tiempoTranscurrido = millis() - tiempoInicioTurno;
-    int tiempoRestante = max(0, (limiteTiempo - tiempoTranscurrido) / 1000);
     
-    // Barra de tiempo
-    float anchoBarra = map(limiteTiempo - tiempoTranscurrido, 0, limiteTiempo, 0, 300);
-    anchoBarra = constrain(anchoBarra, 0, 300);
+    // Barra de tiempo centrada en la parte superior
+    float anchoMax = 320;
+    float anchoBarra = map(limiteTiempo - tiempoTranscurrido, 0, limiteTiempo, 0, anchoMax);
+    anchoBarra = constrain(anchoBarra, 0, anchoMax);
+    
     fill(50);
-    rect(100, 15, 300, 10, 5);
+    rect(width/2 - anchoMax/2, 25, anchoMax, 12, 6);
     fill(turnoActual == ROJO ? color(255, 46, 46) : color(31, 51, 255));
-    rect(100, 15, anchoBarra, 10, 5);
+    rect(width/2 - anchoMax/2, 25, anchoBarra, 12, 6);
     
     if (tiempoTranscurrido >= limiteTiempo) {
       cambiarTurno();
     }
   } else {
-    // Texto de resultado
+    // Texto de resultado centrado arriba del botón
     textAlign(CENTER, CENTER);
-    textSize(22);
+    textSize(26);
     fill(255);
-    if (estadoJuego == ROJO) text("¡¡GANÓ EL ROJO!!", width / 2, 210);
-    else if (estadoJuego == AZUL) text("¡¡GANÓ EL AZUL!!", width / 2, 210);
-    else if (estadoJuego == 3) text("¡¡EMPATE!!", width / 2, 210);
+    if (estadoJuego == ROJO) text("¡¡GANÓ EL ROJO!!", width / 2, btnY - 30);
+    else if (estadoJuego == AZUL) text("¡¡GANÓ EL AZUL!!", width / 2, btnY - 30);
+    else if (estadoJuego == 3) text("¡¡EMPATE!!", width / 2, btnY - 30);
     
-    // Botón de Reinicio
-    fill(60, 65, 85);
-    stroke(255);
+    // Dibujar Botón de Reinicio
+    fill(45, 50, 70);
+    stroke(70, 75, 100);
     strokeWeight(2);
     rect(btnX, btnY, btnW, btnH, 10);
-    noStroke();
+    
     fill(255);
     textSize(16);
     text("REINICIAR", width/2, btnY + btnH/2);
   }
   
-  // Actualizar fisicas de saltos
+  // Actualizar físicas de saltos
   actualizarPersonajes();
   
-  // Dibujar a tus personajes en la base
+  // Dibujar a los personajes en los laterales
   dibujarPersonajes();
 }
 
@@ -125,13 +127,18 @@ void mousePressed() {
 }
 
 void inicializarJuego() {
-  float tamano = 95;
-  float inicioX = 92;
-  float inicioY = 35;
+  float tamano = 110;
+  float espacio = 12;
+  float anchoTablero = 3 * tamano + 2 * espacio;
+  float altoTablero = 3 * tamano + 2 * espacio;
+  
+  // Cálculo exacto del origen para centrar el tablero en (900x500)
+  float inicioX = (width - anchoTablero) / 2;
+  float inicioY = (height - altoTablero) / 2 + 15; // Ligero ajuste hacia abajo para la barra superior
   
   for (int i = 0; i < 9; i++) {
-    float x = inicioX + (i % 3) * (tamano + 10);
-    float y = inicioY + (i / 3) * (tamano + 10);
+    float x = inicioX + (i % 3) * (tamano + espacio);
+    float y = inicioY + (i / 3) * (tamano + espacio);
     tablero[i] = new Casilla(x, y, tamano);
   }
   
@@ -190,26 +197,26 @@ void actualizarPersonajes() {
 void dibujarPersonajes() {
   noStroke();
   
-  // ---------- PERSONAJE AZUL (Izquierda, tocando el piso) ----------
+  // ---------- PERSONAJE AZUL (Izquierda, apoyado en la base) ----------
   pushMatrix();
-  translate(10, 360 + offsetYAzul); // Base en y = 500
+  translate(60, 310 + offsetYAzul);
   
   fill(#1F33FF);
-  circle(75, 65, 140); // Cabeza
+  circle(70, 70, 140); // Cabeza
   fill(#FFF7F7);
-  ellipse(45, 50, 65, 40); // Ojo izquierdo
-  ellipse(105, 50, 65, 40); // Ojo derecho
+  ellipse(40, 55, 60, 38); // Ojo izquierdo
+  ellipse(100, 55, 60, 38); // Ojo derecho
   popMatrix();
   
-  // ---------- PERSONAJE ROJO (Derecha, tocando el piso) ----------
+  // ---------- PERSONAJE ROJO (Derecha, apoyado en la base) ----------
   pushMatrix();
-  translate(350, 360 + offsetYRojo); // Base en y = 500
+  translate(700, 310 + offsetYRojo);
   
   fill(#FF2E2E);
-  rect(0, 0, 140, 140, 16); // Cabeza
+  rect(0, 0, 130, 130, 16); // Cabeza
   fill(#FFF7F7);
-  rect(0, 75, 60, 28); // Ojo izquierdo
-  rect(80, 75, 60, 28); // Ojo derecho
+  rect(5, 65, 55, 26); // Ojo izquierdo
+  rect(70, 65, 55, 26); // Ojo derecho
   popMatrix();
 }
 
@@ -244,10 +251,10 @@ class Casilla {
     noStroke();
     if (estado == ROJO) {
       fill(#FF2E2E);
-      rect(x + 18, y + 18, tamano - 36, tamano - 36, 8);
+      rect(x + 20, y + 20, tamano - 40, tamano - 40, 8);
     } else if (estado == AZUL) {
       fill(#1F33FF);
-      circle(x + tamano/2, y + tamano/2, tamano - 30);
+      circle(x + tamano/2, y + tamano/2, tamano - 32);
     }
   }
   
