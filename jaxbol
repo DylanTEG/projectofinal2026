@@ -1,8 +1,44 @@
 // ============================================================
-//  jaxbol - 2 jugadores, mismo teclado
-//  P1: W A S D   |   P2: Flechas (↑ ↓ ← →)
-//  Espacio: reiniciar pelota / partido
+//  HAXBALL TRUCHO - v2: con PATADA y MULTIJUGADOR EN RED (LAN)
+// ------------------------------------------------------------
+//  Menú inicial:
+//    L = Modo LOCAL (2 jugadores, mismo teclado)
+//    N = Modo RED (cada jugador en su compu, se detectan solos)
+//
+//  Controles LOCAL:
+//    P1: W A S D moverse | ESPACIO patear
+//    P2: Flechas moverse | ENTER patear
+//    R  : reiniciar pelota
+//
+//  Controles RED (cada uno en su propia compu):
+//    WASD o Flechas para moverse | ESPACIO para patear
+//
+//  NOTA sobre la RED: usa broadcast UDP en la LAN para
+//  encontrarse solos (igual que tu ejemplo). Si arrancás los
+//  dos programas EXACTAMENTE al mismo tiempo puede que ninguno
+//  encuentre al otro y los dos terminen de "servidor": arrancá
+//  primero uno, esperá 2 segunditos, y después el otro.
+//  Tiene que ser la misma red/WiFi y el firewall tiene que
+//  dejar pasar a Processing/Java (aceptá el cartelito si sale).
 // ============================================================
+
+import processing.net.*;
+import java.net.*;
+
+// ---------------- ESTADO GENERAL ----------------
+String pantalla = "MENU";   // MENU, BUSCANDO, JUEGO
+String modo = "";           // LOCAL, RED
+
+// ---------------- RED ----------------
+Server s = null;
+Client c = null;
+boolean esServidor = false;
+String serverIP = "";
+boolean running = true;
+int myID;
+
+// input remoto recibido (usado por el servidor para mover al P2)
+boolean rUp, rDown, rLeft, rRight, rKick;
 
 // ---- Cancha ----
 float campoX, campoY, campoW, campoH;
@@ -13,13 +49,21 @@ float arcoAncho = 20;
 PVector p1Pos, p1Vel;
 PVector p2Pos, p2Vel;
 float radioJugador = 22;
-float velJugador = 3.5;
+float velJugador = 3;
 float friccionJugador = 0.85;
 
 // ---- Pelota ----
 PVector ballPos, ballVel;
-float radioBall = 12;
-float friccionBall = 0.985;
+float radioBall = 10;
+float friccionBall = 0.975;
+
+// ---- Patada ----
+float radioPatada = radioJugador + radioBall + 10;
+float fuerzaPatada = 8;
+int cooldownPatada = 10;
+int p1KickCD = 0;
+int p2KickCD = 0;
+ArrayList<float[]> efectosPatada = new ArrayList<float[]>();
 
 // ---- Marcador ----
 int scoreP1 = 0;
@@ -46,31 +90,48 @@ void reiniciarPosiciones() {
 
   ballPos = new PVector(width / 2, height / 2);
   ballVel = new PVector(0, 0);
+
+  p1KickCD = 0;
+  p2KickCD = 0;
+  efectosPatada.clear();
 }
 
+// ================================================================
+//  DRAW
+// ================================================================
 void draw() {
+  if (pantalla.equals("MENU")) {
+    dibujarMenu();
+    return;
+  }
+  if (pantalla.equals("BUSCANDO")) {
+    dibujarBuscando();
+    return;
+  }
+
+  // ---- JUEGO ----
   background(30, 120, 40);
   dibujarCancha();
 
-  moverJugador1();
-  moverJugador2();
-
-  // física
-  actualizarPos(p1Pos, p1Vel, friccionJugador, radioJugador, true);
-  actualizarPos(p2Pos, p2Vel, friccionJugador, radioJugador, true);
-  actualizarPos(ballPos, ballVel, friccionBall, radioBall, false);
-
-  chocarJugadorJugador();
-  chocarJugadorPelota(p1Pos, p1Vel);
-  chocarJugadorPelota(p2Pos, p2Vel);
-
-  chequearGol();
+  if (modo.equals("LOCAL")) {
+    logicaLocal();
+  } else if (modo.equals("RED")) {
+    if (esServidor) logicaServidorRed();
+    else logicaClienteRed();
+  }
 
   dibujarJugador(p1Pos, color(230, 60, 60), "P1");
   dibujarJugador(p2Pos, color(60, 120, 230), "P2");
   dibujarPelota();
-
+  actualizarYDibujarEfectos();
   dibujarMarcador();
+
+  if (modo.equals("RED")) {
+    fill(255);
+    textAlign(LEFT, TOP);
+    textSize(14);
+    text(esServidor ? "Sos el SERVIDOR (P1 - rojo)" : "Sos el CLIENTE (P2 - azul)", 10, 10);
+  }
 
   if (golMostrarTimer > 0) {
     golMostrarTimer--;
@@ -81,32 +142,181 @@ void draw() {
   }
 }
 
-// ---------------- CONTROLES ----------------
-void moverJugador1() {
-  float ax = 0, ay = 0;
-  if (keyPressedMap['w'] || keyPressedMap['W']) ay -= 1;
-  if (keyPressedMap['s'] || keyPressedMap['S']) ay += 1;
-  if (keyPressedMap['a'] || keyPressedMap['A']) ax -= 1;
-  if (keyPressedMap['d'] || keyPressedMap['D']) ax += 1;
-  aplicarImpulso(p1Vel, ax, ay);
+// ================================================================
+//  LOGICA MODO LOCAL (2 jugadores, mismo teclado)
+// ================================================================
+void logicaLocal() {
+  // P1: WASD + espacio
+  float ax1 = 0, ay1 = 0;
+  if (keyPressedMap['w'] || keyPressedMap['W']) ay1 -= 1;
+  if (keyPressedMap['s'] || keyPressedMap['S']) ay1 += 1;
+  if (keyPressedMap['a'] || keyPressedMap['A']) ax1 -= 1;
+  if (keyPressedMap['d'] || keyPressedMap['D']) ax1 += 1;
+  aplicarImpulso(p1Vel, ax1, ay1);
+  boolean kick1 = keyPressedMap[' '];
+
+  // P2: flechas + enter
+  float ax2 = 0, ay2 = 0;
+  if (upPressed) ay2 -= 1;
+  if (downPressed) ay2 += 1;
+  if (leftPressed) ax2 -= 1;
+  if (rightPressed) ax2 += 1;
+  aplicarImpulso(p2Vel, ax2, ay2);
+  boolean kick2 = enterPressed;
+
+  actualizarPos(p1Pos, p1Vel, friccionJugador, radioJugador, true);
+  actualizarPos(p2Pos, p2Vel, friccionJugador, radioJugador, true);
+  actualizarPos(ballPos, ballVel, friccionBall, radioBall, false);
+
+  chocarJugadorJugador();
+  chocarJugadorPelota(p1Pos, p1Vel);
+  chocarJugadorPelota(p2Pos, p2Vel);
+
+  p1KickCD = procesarPatada(p1Pos, p1Vel, kick1, p1KickCD);
+  p2KickCD = procesarPatada(p2Pos, p2Vel, kick2, p2KickCD);
+
+  chequearGol();
 }
 
-void moverJugador2() {
-  float ax = 0, ay = 0;
-  if (upPressed) ay -= 1;
-  if (downPressed) ay += 1;
-  if (leftPressed) ax -= 1;
-  if (rightPressed) ax += 1;
-  aplicarImpulso(p2Vel, ax, ay);
+// ================================================================
+//  LOGICA MODO RED - SERVIDOR (simula todo, manda el estado)
+// ================================================================
+void logicaServidorRed() {
+  // leer input que mandó el cliente
+  if (s != null) {
+    try {
+      Client remitente = s.available();
+      if (remitente != null) {
+        String input = remitente.readStringUntil('\n');
+        if (input != null) {
+          input = trim(input);
+          String[] partes = split(input, ' ');
+          if (partes.length == 6 && partes[0].equals("I")) {
+            rUp    = int(partes[1]) == 1;
+            rDown  = int(partes[2]) == 1;
+            rLeft  = int(partes[3]) == 1;
+            rRight = int(partes[4]) == 1;
+            rKick  = int(partes[5]) == 1;
+          }
+        }
+      }
+    }
+    catch (Exception e) { /* trucho: ignoramos errores de socket */ }
+  }
+
+  // P1 = jugador local del servidor
+  int[] inLocal = leerInputCombinado();
+  float ax1 = 0, ay1 = 0;
+  if (inLocal[0] == 1) ay1 -= 1;
+  if (inLocal[1] == 1) ay1 += 1;
+  if (inLocal[2] == 1) ax1 -= 1;
+  if (inLocal[3] == 1) ax1 += 1;
+  aplicarImpulso(p1Vel, ax1, ay1);
+  boolean kick1 = inLocal[4] == 1;
+
+  // P2 = jugador remoto (cliente)
+  float ax2 = 0, ay2 = 0;
+  if (rUp) ay2 -= 1;
+  if (rDown) ay2 += 1;
+  if (rLeft) ax2 -= 1;
+  if (rRight) ax2 += 1;
+  aplicarImpulso(p2Vel, ax2, ay2);
+  boolean kick2 = rKick;
+
+  actualizarPos(p1Pos, p1Vel, friccionJugador, radioJugador, true);
+  actualizarPos(p2Pos, p2Vel, friccionJugador, radioJugador, true);
+  actualizarPos(ballPos, ballVel, friccionBall, radioBall, false);
+
+  chocarJugadorJugador();
+  chocarJugadorPelota(p1Pos, p1Vel);
+  chocarJugadorPelota(p2Pos, p2Vel);
+
+  p1KickCD = procesarPatada(p1Pos, p1Vel, kick1, p1KickCD);
+  boolean seKick1 = (p1KickCD == cooldownPatada);
+  p2KickCD = procesarPatada(p2Pos, p2Vel, kick2, p2KickCD);
+  boolean seKick2 = (p2KickCD == cooldownPatada);
+
+  chequearGol();
+  int golFlag = 0;
+  if (golMostrarTimer == 90) {
+    golFlag = (golTexto.indexOf("P1") != -1) ? 1 : 2;
+  }
+
+  // mandar estado completo al cliente
+  if (s != null) {
+    String estado = "S " + p1Pos.x + " " + p1Pos.y + " " + p2Pos.x + " " + p2Pos.y + " "
+      + ballPos.x + " " + ballPos.y + " " + scoreP1 + " " + scoreP2 + " "
+      + (seKick1 ? 1 : 0) + " " + (seKick2 ? 1 : 0) + " " + golFlag + "\n";
+    try {
+      s.write(estado);
+    }
+    catch (Exception e) { /* trucho */ }
+  }
 }
 
+// ================================================================
+//  LOGICA MODO RED - CLIENTE (solo manda input y dibuja lo que llega)
+// ================================================================
+void logicaClienteRed() {
+  int[] inLocal = leerInputCombinado();
+  if (c != null) {
+    try {
+      String msg = "I " + inLocal[0] + " " + inLocal[1] + " " + inLocal[2] + " " + inLocal[3] + " " + inLocal[4] + "\n";
+      c.write(msg);
+    }
+    catch (Exception e) { /* trucho */ }
+  }
+
+  if (c != null) {
+    try {
+      while (c.available() > 0) {
+        String input = c.readStringUntil('\n');
+        if (input == null) break;
+        input = trim(input);
+        String[] p = split(input, ' ');
+        if (p.length == 12 && p[0].equals("S")) {
+          p1Pos.x = float(p[1]);
+          p1Pos.y = float(p[2]);
+          p2Pos.x = float(p[3]);
+          p2Pos.y = float(p[4]);
+          ballPos.x = float(p[5]);
+          ballPos.y = float(p[6]);
+          scoreP1 = int(p[7]);
+          scoreP2 = int(p[8]);
+          if (int(p[9]) == 1) agregarEfecto(p1Pos.x, p1Pos.y);
+          if (int(p[10]) == 1) agregarEfecto(p2Pos.x, p2Pos.y);
+          int golFlag = int(p[11]);
+          if (golFlag == 1) {
+            golTexto = "GOL DE P1!";
+            golMostrarTimer = 90;
+          } else if (golFlag == 2) {
+            golTexto = "GOL DE P2!";
+            golMostrarTimer = 90;
+          }
+        }
+      }
+    }
+    catch (Exception e) { /* trucho */ }
+  }
+}
+
+// lee movimiento combinando WASD + flechas (para el modo RED, un solo jugador por compu)
+int[] leerInputCombinado() {
+  int up    = (keyPressedMap['w'] || keyPressedMap['W'] || upPressed)    ? 1 : 0;
+  int down  = (keyPressedMap['s'] || keyPressedMap['S'] || downPressed)  ? 1 : 0;
+  int left  = (keyPressedMap['a'] || keyPressedMap['A'] || leftPressed)  ? 1 : 0;
+  int right = (keyPressedMap['d'] || keyPressedMap['D'] || rightPressed) ? 1 : 0;
+  int kick  = keyPressedMap[' '] ? 1 : 0;
+  return new int[]{up, down, left, right, kick};
+}
+
+// ---------------- IMPULSO / FISICA ----------------
 void aplicarImpulso(PVector vel, float ax, float ay) {
   if (ax != 0 || ay != 0) {
     PVector dir = new PVector(ax, ay);
     dir.normalize();
     vel.x += dir.x * velJugador * 0.35;
     vel.y += dir.y * velJugador * 0.35;
-    // limitar velocidad máxima
     float maxV = velJugador;
     if (vel.mag() > maxV) {
       vel.normalize();
@@ -115,15 +325,12 @@ void aplicarImpulso(PVector vel, float ax, float ay) {
   }
 }
 
-// ---------------- FISICA ----------------
 void actualizarPos(PVector pos, PVector vel, float friccion, float radio, boolean esJugador) {
   pos.add(vel);
   vel.mult(friccion);
 
-  // límites del campo (rebote), salvo en la zona del arco donde puede entrar
   boolean enZonaArco = (pos.y > height/2 - arcoAlto/2 && pos.y < height/2 + arcoAlto/2);
 
-  // techo y piso
   if (pos.y - radio < campoY) {
     pos.y = campoY + radio;
     vel.y *= -0.6;
@@ -133,7 +340,6 @@ void actualizarPos(PVector pos, PVector vel, float friccion, float radio, boolea
     vel.y *= -0.6;
   }
 
-  // paredes izquierda/derecha (si no está en la línea del arco, o si es jugador siempre rebota)
   if (esJugador || !enZonaArco) {
     if (pos.x - radio < campoX) {
       pos.x = campoX + radio;
@@ -144,7 +350,6 @@ void actualizarPos(PVector pos, PVector vel, float friccion, float radio, boolea
       vel.x *= -0.6;
     }
   } else {
-    // la pelota puede pasar la línea si va hacia el arco, pero no salir del todo de la cancha extendida
     if (pos.x - radio < campoX - arcoAncho) {
       pos.x = campoX - arcoAncho + radio;
       vel.x *= -0.6;
@@ -167,14 +372,12 @@ void chocarJugadorPelota(PVector jPos, PVector jVel) {
     PVector normal = PVector.sub(ballPos, jPos);
     normal.normalize();
 
-    // separar
     float overlap = minDist - dist;
     ballPos.add(PVector.mult(normal, overlap));
 
-    // transferir impulso del jugador + un empujón extra
     float fuerza = jVel.mag() * 1.4 + 3.5;
-    ballVel.x = normal.x * fuerza + jVel.x * 0.3;
-    ballVel.y = normal.y * fuerza + jVel.y * 0.3;
+    ballVel.x = normal.x + jVel.x * 0.99;
+    ballVel.y = normal.y + jVel.y * 0.99;
   }
 }
 
@@ -189,7 +392,6 @@ void chocarCirculos(PVector posA, PVector velA, float rA, PVector posB, PVector 
     posA.sub(PVector.mult(normal, overlap));
     posB.add(PVector.mult(normal, overlap));
 
-    // intercambio simple de velocidades sobre la normal
     PVector relVel = PVector.sub(velB, velA);
     float velANormal = relVel.dot(normal);
     if (velANormal < 0) {
@@ -198,6 +400,46 @@ void chocarCirculos(PVector posA, PVector velA, float rA, PVector posB, PVector 
       velB.sub(impulso);
     }
   }
+}
+
+// ---------------- PATADA ----------------
+// Si hay cooldown, lo va bajando. Si se apretó la tecla y la pelota
+// está en rango, le pega fuerte y reinicia el cooldown.
+int procesarPatada(PVector jPos, PVector jVel, boolean kickPresionado, int cd) {
+  if (cd > 0) return cd - 1;
+  if (kickPresionado) {
+    float dist = PVector.dist(jPos, ballPos);
+    if (dist < radioPatada) {
+      PVector dir = PVector.sub(ballPos, jPos);
+      if (dir.mag() < 0.001) dir = new PVector(1, 0);
+      dir.normalize();
+      ballVel.x = dir.x * fuerzaPatada + jVel.x * 0.3;
+      ballVel.y = dir.y * fuerzaPatada + jVel.y * 0.3;
+      agregarEfecto(jPos.x, jPos.y);
+      return cooldownPatada;
+    }
+  }
+  return 0;
+}
+
+void agregarEfecto(float x, float y) {
+  efectosPatada.add(new float[]{x, y, 18});
+}
+
+void actualizarYDibujarEfectos() {
+  noFill();
+  strokeWeight(3);
+  for (int i = efectosPatada.size() - 1; i >= 0; i--) {
+    float[] e = efectosPatada.get(i);
+    float vida = e[2];
+    float alpha = map(vida, 0, 18, 0, 255);
+    float tam = map(vida, 18, 0, radioJugador * 1.2, radioPatada * 1.6);
+    stroke(255, 255, 0, alpha);
+    ellipse(e[0], e[1], tam, tam);
+    e[2] = vida - 1;
+    if (e[2] <= 0) efectosPatada.remove(i);
+  }
+  noStroke();
 }
 
 // ---------------- GOLES ----------------
@@ -219,8 +461,31 @@ void chequearGol() {
 }
 
 // ---------------- DIBUJO ----------------
+void dibujarMenu() {
+  background(20, 90, 30);
+  fill(255);
+  textAlign(CENTER, CENTER);
+  textSize(36);
+  text("HAXBALL TRUCHO", width / 2, height / 2 - 90);
+  textSize(20);
+  text("Presioná L para modo LOCAL (2 jugadores, mismo teclado)", width / 2, height / 2 - 10);
+  text("Presioná N para modo RED (LAN, cada uno en su compu)", width / 2, height / 2 + 20);
+  textSize(14);
+  text("Local: P1 = WASD + ESPACIO patea   |   P2 = Flechas + ENTER patea", width / 2, height / 2 + 60);
+  text("Red: movete con WASD o flechas, ESPACIO para patear", width / 2, height / 2 + 85);
+}
+
+void dibujarBuscando() {
+  background(20, 90, 30);
+  fill(255);
+  textAlign(CENTER, CENTER);
+  textSize(24);
+  text("Buscando partida en la red local...", width / 2, height / 2 - 20);
+  textSize(14);
+  text("(si no encuentra a nadie en 1.5s, esta compu pasa a ser el servidor)", width / 2, height / 2 + 20);
+}
+
 void dibujarCancha() {
-  // pasto con rayas
   noStroke();
   for (int i = 0; i < 12; i++) {
     if (i % 2 == 0) fill(30, 130, 45);
@@ -228,13 +493,11 @@ void dibujarCancha() {
     rect(i * width / 12.0, 0, width / 12.0, height);
   }
 
-  // borde del campo
   stroke(255);
   strokeWeight(4);
   noFill();
   rect(campoX, campoY, campoW, campoH);
 
-  // línea media
   line(width/2, campoY, width/2, campoY + campoH);
   noStroke();
   fill(255);
@@ -242,24 +505,21 @@ void dibujarCancha() {
   fill(30, 130, 45);
   ellipse(width/2, height/2, 84, 84);
 
-  // arcos
   stroke(255, 220, 0);
   strokeWeight(6);
-  // arco izquierdo
   line(campoX - arcoAncho, height/2 - arcoAlto/2, campoX, height/2 - arcoAlto/2);
   line(campoX - arcoAncho, height/2 + arcoAlto/2, campoX, height/2 + arcoAlto/2);
   line(campoX - arcoAncho, height/2 - arcoAlto/2, campoX - arcoAncho, height/2 + arcoAlto/2);
-  // arco derecho
   line(campoX + campoW, height/2 - arcoAlto/2, campoX + campoW + arcoAncho, height/2 - arcoAlto/2);
   line(campoX + campoW, height/2 + arcoAlto/2, campoX + campoW + arcoAncho, height/2 + arcoAlto/2);
   line(campoX + campoW + arcoAncho, height/2 - arcoAlto/2, campoX + campoW + arcoAncho, height/2 + arcoAlto/2);
   noStroke();
 }
 
-void dibujarJugador(PVector pos, color c, String etiqueta) {
+void dibujarJugador(PVector pos, color col, String etiqueta) {
   stroke(0, 80);
   strokeWeight(2);
-  fill(c);
+  fill(col);
   ellipse(pos.x, pos.y, radioJugador * 2, radioJugador * 2);
   noStroke();
   fill(255);
@@ -291,26 +551,126 @@ void dibujarMarcador() {
   text(scoreP2, width/2 + 60, 35);
 }
 
-// ---------------- MANEJO DE TECLAS (soporta varias a la vez) ----------------
+// ================================================================
+//  RED: DESCUBRIMIENTO AUTOMATICO (UDP broadcast) - igual idea que
+//  el ejemplo: gritamos "HAY_SERVER?" y si alguien contesta, nos
+//  conectamos a esa IP. Si nadie contesta, nos convertimos en server.
+// ================================================================
+void iniciarRed() {
+  serverIP = buscarServidorEnRed();
+
+  if (serverIP != null) {
+    esServidor = false;
+    myID = (int) random(1, 1000000);
+    c = new Client(this, serverIP, 12345);
+    println("Modo: CLIENTE (ID " + myID + "). Conectado a " + serverIP);
+  } else {
+    esServidor = true;
+    myID = 0;
+    s = new Server(this, 12345);
+    println("Modo: SERVIDOR. Esperando conexión...");
+    thread("responderDescubrimiento");
+  }
+
+  reiniciarPosiciones();
+  pantalla = "JUEGO";
+}
+
+String buscarServidorEnRed() {
+  try {
+    DatagramSocket socket = new DatagramSocket();
+    socket.setBroadcast(true);
+
+    byte[] mensaje = "HAY_SERVER?".getBytes();
+    DatagramPacket paqueteEnvio = new DatagramPacket(mensaje, mensaje.length, InetAddress.getByName("255.255.255.255"), 8888);
+    socket.send(paqueteEnvio);
+
+    socket.setSoTimeout(1500);
+    byte[] bufferRecepcion = new byte[1024];
+    DatagramPacket paqueteRespuesta = new DatagramPacket(bufferRecepcion, bufferRecepcion.length);
+
+    socket.receive(paqueteRespuesta);
+
+    String ipDescubierta = paqueteRespuesta.getAddress().getHostAddress();
+    socket.close();
+    return ipDescubierta;
+  }
+  catch (Exception e) {
+    return null;
+  }
+}
+
+void responderDescubrimiento() {
+  try {
+    DatagramSocket serverSocket = new DatagramSocket(8888);
+    byte[] bufferRecepcion = new byte[1024];
+    while (running) {
+      DatagramPacket paqueteEntrante = new DatagramPacket(bufferRecepcion, bufferRecepcion.length);
+      serverSocket.receive(paqueteEntrante);
+
+      String mensaje = new String(paqueteEntrante.getData(), 0, paqueteEntrante.getLength());
+      if (mensaje.equals("HAY_SERVER?")) {
+        byte[] respuesta = "ESTOY".getBytes();
+        DatagramPacket paqueteRespuesta = new DatagramPacket(respuesta, respuesta.length, paqueteEntrante.getAddress(), paqueteEntrante.getPort());
+        serverSocket.send(paqueteRespuesta);
+      }
+    }
+  }
+  catch (Exception e) {
+    println("Servidor de descubrimiento UDP cerrado.");
+  }
+}
+
+// ---------------- MANEJO DE TECLAS ----------------
 boolean[] keyPressedMap = new boolean[128];
-boolean upPressed, downPressed, leftPressed, rightPressed;
+boolean upPressed, downPressed, leftPressed, rightPressed, enterPressed;
 
 void keyPressed() {
+  if (pantalla.equals("MENU")) {
+    if (key == 'L' || key == 'l') {
+      modo = "LOCAL";
+      reiniciarPosiciones();
+      pantalla = "JUEGO";
+    } else if (key == 'N' || key == 'n') {
+      modo = "RED";
+      pantalla = "BUSCANDO";
+      thread("iniciarRed");
+    }
+    return;
+  }
+
   if (key >= 0 && key < 128) keyPressedMap[key] = true;
   if (keyCode == UP) upPressed = true;
   if (keyCode == DOWN) downPressed = true;
   if (keyCode == LEFT) leftPressed = true;
   if (keyCode == RIGHT) rightPressed = true;
+  if (keyCode == ENTER || keyCode == RETURN) enterPressed = true;
 
-  if (key == ' ') {
+  if (modo.equals("LOCAL") && (key == 'r' || key == 'R')) {
     reiniciarPosiciones();
   }
 }
 
 void keyReleased() {
+  if (pantalla.equals("MENU")) return;
+
   if (key >= 0 && key < 128) keyPressedMap[key] = false;
   if (keyCode == UP) upPressed = false;
   if (keyCode == DOWN) downPressed = false;
   if (keyCode == LEFT) leftPressed = false;
   if (keyCode == RIGHT) rightPressed = false;
+  if (keyCode == ENTER || keyCode == RETURN) enterPressed = false;
+}
+
+void exit() {
+  running = false;
+  try {
+    if (s != null) s.stop();
+  }
+  catch (Exception e) {}
+  try {
+    if (c != null) c.stop();
+  }
+  catch (Exception e) {}
+  super.exit();
 }
