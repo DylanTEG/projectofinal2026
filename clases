@@ -1,1 +1,49 @@
 //clases de todos los objetos
+
+// ==========================================
+// CLASE CASILLA
+// ==========================================
+class Casilla {
+  float x, y;
+  float tamano;
+  int estado;
+  
+  Casilla(float x, float y, float tamano) {
+    this.x = x;
+    this.y = y;
+    this.tamano = tamano;
+    this.estado = 0;
+  }
+  
+  void mostrar() {
+    // Color al pasar el mouse
+    if (contienePunto(mouseX, mouseY) && estaVacia() && estadoJuego == 0) {
+      fill(45, 50, 70);
+    } else {
+      fill(35, 38, 55);
+    }
+    
+    stroke(70, 75, 100);
+    strokeWeight(3);
+    rect(x, y, tamano, tamano, 12);
+    
+    // Dibujar las figuras de los jugadores dentro de las casillas
+    noStroke();
+    if (estado == ROJO) {
+      fill(#FF2E2E);
+      rect(x + 20, y + 20, tamano - 40, tamano - 40, 8);
+    } else if (estado == AZUL) {
+      fill(#1F33FF);
+      circle(x + tamano/2, y + tamano/2, tamano - 32);
+    }
+  }
+  
+  boolean contienePunto(float px, float py) {
+    return (px >= x && px <= x + tamano && py >= y && py <= y + tamano);
+  }
+  
+  boolean estaVacia() {
+    return estado == 0;
+  }
+}
+
