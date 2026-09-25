@@ -1,1 +1,316 @@
+// ============================================================
+//  HAXBALL TRUCHO - 2 jugadores, mismo teclado
+//  P1: W A S D   |   P2: Flechas (↑ ↓ ← →)
+//  Espacio: reiniciar pelota / partido
+// ============================================================
 
+// ---- Cancha ----
+float campoX, campoY, campoW, campoH;
+float arcoAlto = 160;
+float arcoAncho = 20;
+
+// ---- Jugadores ----
+PVector p1Pos, p1Vel;
+PVector p2Pos, p2Vel;
+float radioJugador = 22;
+float velJugador = 3.5;
+float friccionJugador = 0.85;
+
+// ---- Pelota ----
+PVector ballPos, ballVel;
+float radioBall = 12;
+float friccionBall = 0.985;
+
+// ---- Marcador ----
+int scoreP1 = 0;
+int scoreP2 = 0;
+int golMostrarTimer = 0;
+String golTexto = "";
+
+void setup() {
+  size(900, 600);
+  campoW = width - 100;
+  campoH = height - 100;
+  campoX = (width - campoW) / 2;
+  campoY = (height - campoH) / 2;
+
+  reiniciarPosiciones();
+}
+
+void reiniciarPosiciones() {
+  p1Pos = new PVector(campoX + campoW * 0.25, height / 2);
+  p1Vel = new PVector(0, 0);
+
+  p2Pos = new PVector(campoX + campoW * 0.75, height / 2);
+  p2Vel = new PVector(0, 0);
+
+  ballPos = new PVector(width / 2, height / 2);
+  ballVel = new PVector(0, 0);
+}
+
+void draw() {
+  background(30, 120, 40);
+  dibujarCancha();
+
+  moverJugador1();
+  moverJugador2();
+
+  // física
+  actualizarPos(p1Pos, p1Vel, friccionJugador, radioJugador, true);
+  actualizarPos(p2Pos, p2Vel, friccionJugador, radioJugador, true);
+  actualizarPos(ballPos, ballVel, friccionBall, radioBall, false);
+
+  chocarJugadorJugador();
+  chocarJugadorPelota(p1Pos, p1Vel);
+  chocarJugadorPelota(p2Pos, p2Vel);
+
+  chequearGol();
+
+  dibujarJugador(p1Pos, color(230, 60, 60), "P1");
+  dibujarJugador(p2Pos, color(60, 120, 230), "P2");
+  dibujarPelota();
+
+  dibujarMarcador();
+
+  if (golMostrarTimer > 0) {
+    golMostrarTimer--;
+    fill(255, 255, 0);
+    textAlign(CENTER, CENTER);
+    textSize(48);
+    text(golTexto, width / 2, height / 2 - 100);
+  }
+}
+
+// ---------------- CONTROLES ----------------
+void moverJugador1() {
+  float ax = 0, ay = 0;
+  if (keyPressedMap['w'] || keyPressedMap['W']) ay -= 1;
+  if (keyPressedMap['s'] || keyPressedMap['S']) ay += 1;
+  if (keyPressedMap['a'] || keyPressedMap['A']) ax -= 1;
+  if (keyPressedMap['d'] || keyPressedMap['D']) ax += 1;
+  aplicarImpulso(p1Vel, ax, ay);
+}
+
+void moverJugador2() {
+  float ax = 0, ay = 0;
+  if (upPressed) ay -= 1;
+  if (downPressed) ay += 1;
+  if (leftPressed) ax -= 1;
+  if (rightPressed) ax += 1;
+  aplicarImpulso(p2Vel, ax, ay);
+}
+
+void aplicarImpulso(PVector vel, float ax, float ay) {
+  if (ax != 0 || ay != 0) {
+    PVector dir = new PVector(ax, ay);
+    dir.normalize();
+    vel.x += dir.x * velJugador * 0.35;
+    vel.y += dir.y * velJugador * 0.35;
+    // limitar velocidad máxima
+    float maxV = velJugador;
+    if (vel.mag() > maxV) {
+      vel.normalize();
+      vel.mult(maxV);
+    }
+  }
+}
+
+// ---------------- FISICA ----------------
+void actualizarPos(PVector pos, PVector vel, float friccion, float radio, boolean esJugador) {
+  pos.add(vel);
+  vel.mult(friccion);
+
+  // límites del campo (rebote), salvo en la zona del arco donde puede entrar
+  boolean enZonaArco = (pos.y > height/2 - arcoAlto/2 && pos.y < height/2 + arcoAlto/2);
+
+  // techo y piso
+  if (pos.y - radio < campoY) {
+    pos.y = campoY + radio;
+    vel.y *= -0.6;
+  }
+  if (pos.y + radio > campoY + campoH) {
+    pos.y = campoY + campoH - radio;
+    vel.y *= -0.6;
+  }
+
+  // paredes izquierda/derecha (si no está en la línea del arco, o si es jugador siempre rebota)
+  if (esJugador || !enZonaArco) {
+    if (pos.x - radio < campoX) {
+      pos.x = campoX + radio;
+      vel.x *= -0.6;
+    }
+    if (pos.x + radio > campoX + campoW) {
+      pos.x = campoX + campoW - radio;
+      vel.x *= -0.6;
+    }
+  } else {
+    // la pelota puede pasar la línea si va hacia el arco, pero no salir del todo de la cancha extendida
+    if (pos.x - radio < campoX - arcoAncho) {
+      pos.x = campoX - arcoAncho + radio;
+      vel.x *= -0.6;
+    }
+    if (pos.x + radio > campoX + campoW + arcoAncho) {
+      pos.x = campoX + campoW + arcoAncho - radio;
+      vel.x *= -0.6;
+    }
+  }
+}
+
+void chocarJugadorJugador() {
+  chocarCirculos(p1Pos, p1Vel, radioJugador, p2Pos, p2Vel, radioJugador);
+}
+
+void chocarJugadorPelota(PVector jPos, PVector jVel) {
+  float dist = PVector.dist(jPos, ballPos);
+  float minDist = radioJugador + radioBall;
+  if (dist < minDist && dist > 0.001) {
+    PVector normal = PVector.sub(ballPos, jPos);
+    normal.normalize();
+
+    // separar
+    float overlap = minDist - dist;
+    ballPos.add(PVector.mult(normal, overlap));
+
+    // transferir impulso del jugador + un empujón extra
+    float fuerza = jVel.mag() * 1.4 + 3.5;
+    ballVel.x = normal.x * fuerza + jVel.x * 0.3;
+    ballVel.y = normal.y * fuerza + jVel.y * 0.3;
+  }
+}
+
+void chocarCirculos(PVector posA, PVector velA, float rA, PVector posB, PVector velB, float rB) {
+  float dist = PVector.dist(posA, posB);
+  float minDist = rA + rB;
+  if (dist < minDist && dist > 0.001) {
+    PVector normal = PVector.sub(posB, posA);
+    normal.normalize();
+    float overlap = (minDist - dist) / 2;
+
+    posA.sub(PVector.mult(normal, overlap));
+    posB.add(PVector.mult(normal, overlap));
+
+    // intercambio simple de velocidades sobre la normal
+    PVector relVel = PVector.sub(velB, velA);
+    float velANormal = relVel.dot(normal);
+    if (velANormal < 0) {
+      PVector impulso = PVector.mult(normal, velANormal);
+      velA.add(impulso);
+      velB.sub(impulso);
+    }
+  }
+}
+
+// ---------------- GOLES ----------------
+void chequearGol() {
+  boolean enZonaArco = (ballPos.y > height/2 - arcoAlto/2 && ballPos.y < height/2 + arcoAlto/2);
+  if (!enZonaArco) return;
+
+  if (ballPos.x - radioBall < campoX - arcoAncho + 2) {
+    scoreP2++;
+    golTexto = "GOL DE P2!";
+    golMostrarTimer = 90;
+    reiniciarPosiciones();
+  } else if (ballPos.x + radioBall > campoX + campoW + arcoAncho - 2) {
+    scoreP1++;
+    golTexto = "GOL DE P1!";
+    golMostrarTimer = 90;
+    reiniciarPosiciones();
+  }
+}
+
+// ---------------- DIBUJO ----------------
+void dibujarCancha() {
+  // pasto con rayas
+  noStroke();
+  for (int i = 0; i < 12; i++) {
+    if (i % 2 == 0) fill(30, 130, 45);
+    else fill(28, 118, 40);
+    rect(i * width / 12.0, 0, width / 12.0, height);
+  }
+
+  // borde del campo
+  stroke(255);
+  strokeWeight(4);
+  noFill();
+  rect(campoX, campoY, campoW, campoH);
+
+  // línea media
+  line(width/2, campoY, width/2, campoY + campoH);
+  noStroke();
+  fill(255);
+  ellipse(width/2, height/2, 90, 90);
+  fill(30, 130, 45);
+  ellipse(width/2, height/2, 84, 84);
+
+  // arcos
+  stroke(255, 220, 0);
+  strokeWeight(6);
+  // arco izquierdo
+  line(campoX - arcoAncho, height/2 - arcoAlto/2, campoX, height/2 - arcoAlto/2);
+  line(campoX - arcoAncho, height/2 + arcoAlto/2, campoX, height/2 + arcoAlto/2);
+  line(campoX - arcoAncho, height/2 - arcoAlto/2, campoX - arcoAncho, height/2 + arcoAlto/2);
+  // arco derecho
+  line(campoX + campoW, height/2 - arcoAlto/2, campoX + campoW + arcoAncho, height/2 - arcoAlto/2);
+  line(campoX + campoW, height/2 + arcoAlto/2, campoX + campoW + arcoAncho, height/2 + arcoAlto/2);
+  line(campoX + campoW + arcoAncho, height/2 - arcoAlto/2, campoX + campoW + arcoAncho, height/2 + arcoAlto/2);
+  noStroke();
+}
+
+void dibujarJugador(PVector pos, color c, String etiqueta) {
+  stroke(0, 80);
+  strokeWeight(2);
+  fill(c);
+  ellipse(pos.x, pos.y, radioJugador * 2, radioJugador * 2);
+  noStroke();
+  fill(255);
+  textAlign(CENTER, CENTER);
+  textSize(14);
+  text(etiqueta, pos.x, pos.y);
+}
+
+void dibujarPelota() {
+  stroke(0);
+  strokeWeight(2);
+  fill(255);
+  ellipse(ballPos.x, ballPos.y, radioBall * 2, radioBall * 2);
+  noStroke();
+}
+
+void dibujarMarcador() {
+  fill(0, 150);
+  rect(width/2 - 110, 10, 220, 50, 10);
+  fill(230, 60, 60);
+  textAlign(CENTER, CENTER);
+  textSize(26);
+  text(scoreP1, width/2 - 60, 35);
+  fill(255);
+  textSize(20);
+  text("-", width/2, 35);
+  fill(60, 120, 230);
+  textSize(26);
+  text(scoreP2, width/2 + 60, 35);
+}
+
+// ---------------- MANEJO DE TECLAS (soporta varias a la vez) ----------------
+boolean[] keyPressedMap = new boolean[128];
+boolean upPressed, downPressed, leftPressed, rightPressed;
+
+void keyPressed() {
+  if (key >= 0 && key < 128) keyPressedMap[key] = true;
+  if (keyCode == UP) upPressed = true;
+  if (keyCode == DOWN) downPressed = true;
+  if (keyCode == LEFT) leftPressed = true;
+  if (keyCode == RIGHT) rightPressed = true;
+
+  if (key == ' ') {
+    reiniciarPosiciones();
+  }
+}
+
+void keyReleased() {
+  if (key >= 0 && key < 128) keyPressedMap[key] = false;
+  if (keyCode == UP) upPressed = false;
+  if (keyCode == DOWN) downPressed = false;
+  if (keyCode == LEFT) leftPressed = false;
+  if (keyCode == RIGHT) rightPressed = false;
+}
