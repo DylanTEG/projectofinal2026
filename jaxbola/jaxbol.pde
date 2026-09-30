@@ -73,20 +73,7 @@ void reiniciarPosiciones() {
   efectosPatada.clear();
 }
 
-// ---------------- IMPULSO / FISICA ----------------
-void aplicarImpulso(PVector vel, float ax, float ay) {
-  if (ax != 0 || ay != 0) {
-    PVector dir = new PVector(ax, ay);
-    dir.normalize();
-    vel.x += dir.x * velJugador * 0.35;
-    vel.y += dir.y * velJugador * 0.35;
-    float maxV = velJugador;
-    if (vel.mag() > maxV) {
-      vel.normalize();
-      vel.mult(maxV);
-    }
-  }
-}
+
 
 void actualizarPos(PVector pos, PVector vel, float friccion, float radio, boolean esJugador) {
   pos.add(vel);
@@ -124,29 +111,7 @@ void actualizarPos(PVector pos, PVector vel, float friccion, float radio, boolea
   }
 }
 
-// ---------------- PATADA ----------------
-// Si hay cooldown, lo va bajando. Si se apretó la tecla y la pelota
-// está en rango, le pega fuerte y reinicia el cooldown.
-int procesarPatada(PVector jPos, PVector jVel, boolean kickPresionado, int cd) {
-  if (cd > 0) return cd - 1;
-  if (kickPresionado) {
-    float dist = PVector.dist(jPos, ballPos);
-    if (dist < radioPatada) {
-      PVector dir = PVector.sub(ballPos, jPos);
-      if (dir.mag() < 0.001) dir = new PVector(1, 0);
-      dir.normalize();
-      ballVel.x = dir.x * fuerzaPatada + jVel.x * 0.3;
-      ballVel.y = dir.y * fuerzaPatada + jVel.y * 0.3;
-      agregarEfecto(jPos.x, jPos.y);
-      return cooldownPatada;
-    }
-  }
-  return 0;
-}
 
-void agregarEfecto(float x, float y) {
-  efectosPatada.add(new float[]{x, y, 18});
-}
 
 void actualizarYDibujarEfectos() {
   noFill();
