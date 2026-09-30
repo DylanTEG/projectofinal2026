@@ -1,63 +1,40 @@
-// lee movimiento combinando WASD + flechas (para el modo RED, un solo jugador por compu)
-int[] leerInputCombinado() {
-  int up    = (keyPressedMap['w'] || keyPressedMap['W'] || upPressed)    ? 1 : 0;
-  int down  = (keyPressedMap['s'] || keyPressedMap['S'] || downPressed)  ? 1 : 0;
-  int left  = (keyPressedMap['a'] || keyPressedMap['A'] || leftPressed)  ? 1 : 0;
-  int right = (keyPressedMap['d'] || keyPressedMap['D'] || rightPressed) ? 1 : 0;
-  int kick  = keyPressedMap[' '] ? 1 : 0;
-  return new int[]{up, down, left, right, kick};
+void chocarJugadorJugador() {
+  chocarCirculos(p1Pos, p1Vel, radioJugador, p2Pos, p2Vel, radioJugador);
 }
 
-// ---------------- MANEJO DE TECLAS ----------------
-boolean[] keyPressedMap = new boolean[128];
-boolean upPressed, downPressed, leftPressed, rightPressed, enterPressed;
+void chocarJugadorPelota(PVector jPos, PVector jVel) {
+  float dist = PVector.dist(jPos, ballPos);
+  float minDist = radioJugador + radioBall;
+  if (dist < minDist && dist > 0.001) {
+    PVector normal = PVector.sub(ballPos, jPos);
+    normal.normalize();
 
-void keyPressed() {
-  if (pantalla.equals("MENU")) {
-    if (key == 'L' || key == 'l') {
-      modo = "LOCAL";
-      reiniciarPosiciones();
-      pantalla = "JUEGO";
-    } else if (key == 'N' || key == 'n') {
-      modo = "RED";
-      pantalla = "BUSCANDO";
-      thread("iniciarRed");
+    float overlap = minDist - dist;
+    ballPos.add(PVector.mult(normal, overlap));
+
+    float fuerza = jVel.mag() * 1.4 + 3.5;
+    ballVel.x = normal.x + jVel.x * 0.99;
+    ballVel.y = normal.y + jVel.y * 0.99;
+  }
+}
+
+void chocarCirculos(PVector posA, PVector velA, float rA, PVector posB, PVector velB, float rB) {
+  float dist = PVector.dist(posA, posB);
+  float minDist = rA + rB;
+  if (dist < minDist && dist > 0.001) {
+    PVector normal = PVector.sub(posB, posA);
+    normal.normalize();
+    float overlap = (minDist - dist) / 2;
+
+    posA.sub(PVector.mult(normal, overlap));
+    posB.add(PVector.mult(normal, overlap));
+
+    PVector relVel = PVector.sub(velB, velA);
+    float velANormal = relVel.dot(normal);
+    if (velANormal < 0) {
+      PVector impulso = PVector.mult(normal, velANormal);
+      velA.add(impulso);
+      velB.sub(impulso);
     }
-    return;
   }
-
-  if (key >= 0 && key < 128) keyPressedMap[key] = true;
-  if (keyCode == UP) upPressed = true;
-  if (keyCode == DOWN) downPressed = true;
-  if (keyCode == LEFT) leftPressed = true;
-  if (keyCode == RIGHT) rightPressed = true;
-  if (keyCode == ENTER || keyCode == RETURN) enterPressed = true;
-
-  if (modo.equals("LOCAL") && (key == 'r' || key == 'R')) {
-    reiniciarPosiciones();
-  }
-}
-
-void keyReleased() {
-  if (pantalla.equals("MENU")) return;
-
-  if (key >= 0 && key < 128) keyPressedMap[key] = false;
-  if (keyCode == UP) upPressed = false;
-  if (keyCode == DOWN) downPressed = false;
-  if (keyCode == LEFT) leftPressed = false;
-  if (keyCode == RIGHT) rightPressed = false;
-  if (keyCode == ENTER || keyCode == RETURN) enterPressed = false;
-}
-
-void exit() {
-  running = false;
-  try {
-    if (s != null) s.stop();
-  }
-  catch (Exception e) {}
-  try {
-    if (c != null) c.stop();
-  }
-  catch (Exception e) {}
-  super.exit();
 }
