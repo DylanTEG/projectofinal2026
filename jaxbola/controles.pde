@@ -61,3 +61,27 @@ void exit() {
   catch (Exception e) {}
   super.exit();
 }
+
+// ---------------- PATADA ----------------
+// Si hay cooldown, lo va bajando. Si se apretó la tecla y la pelota
+// está en rango, le pega fuerte y reinicia el cooldown.
+int procesarPatada(PVector jPos, PVector jVel, boolean kickPresionado, int cd) {
+  if (cd > 0) return cd - 1;
+  if (kickPresionado) {
+    float dist = PVector.dist(jPos, ballPos);
+    if (dist < radioPatada) {
+      PVector dir = PVector.sub(ballPos, jPos);
+      if (dir.mag() < 0.001) dir = new PVector(1, 0);
+      dir.normalize();
+      ballVel.x = dir.x * fuerzaPatada + jVel.x * 0.4;
+      ballVel.y = dir.y * fuerzaPatada + jVel.y * 0.4;
+      agregarEfecto(jPos.x, jPos.y);
+      return cooldownPatada;
+    }
+  }
+  return 0;
+}
+
+void agregarEfecto(float x, float y) {
+  efectosPatada.add(new float[]{x, y, 18});
+}
