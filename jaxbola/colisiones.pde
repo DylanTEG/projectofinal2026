@@ -1,3 +1,18 @@
+// ---------------- IMPULSO / FISICA ----------------
+void aplicarImpulso(PVector vel, float ax, float ay) {
+  if (ax != 0 || ay != 0) {
+    PVector dir = new PVector(ax, ay);
+    dir.normalize();
+    vel.x += dir.x * velJugador * 0.35;
+    vel.y += dir.y * velJugador * 0.35;
+    float maxV = velJugador;
+    if (vel.mag() > maxV) {
+      vel.normalize();
+      vel.mult(maxV);
+    }
+  }
+}
+
 void chocarJugadorJugador() {
   chocarCirculos(p1Pos, p1Vel, radioJugador, p2Pos, p2Vel, radioJugador);
 }
@@ -11,8 +26,7 @@ void chocarJugadorPelota(PVector jPos, PVector jVel) {
 
     float overlap = minDist - dist;
     ballPos.add(PVector.mult(normal, overlap));
-
-    float fuerza = jVel.mag() * 1.4 + 3.5;
+    
     ballVel.x = normal.x + jVel.x * 0.99;
     ballVel.y = normal.y + jVel.y * 0.99;
   }
