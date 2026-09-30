@@ -1,18 +1,6 @@
 // ============================================================
 //  HAXBALL TRUCHO - v2: con PATADA y MULTIJUGADOR EN RED (LAN)
 // ------------------------------------------------------------
-//  Menú inicial:
-//    L = Modo LOCAL (2 jugadores, mismo teclado)
-//    N = Modo RED (cada jugador en su compu, se detectan solos)
-//
-//  Controles LOCAL:
-//    P1: W A S D moverse | ESPACIO patear
-//    P2: Flechas moverse | ENTER patear
-//    R  : reiniciar pelota
-//
-//  Controles RED (cada uno en su propia compu):
-//    WASD o Flechas para moverse | ESPACIO para patear
-//
 //  NOTA sobre la RED: usa broadcast UDP en la LAN para
 //  encontrarse solos (igual que tu ejemplo). Si arrancás los
 //  dos programas EXACTAMENTE al mismo tiempo puede que ninguno
@@ -85,64 +73,6 @@ void reiniciarPosiciones() {
   efectosPatada.clear();
 }
 
-// ================================================================
-//  DRAW
-// ================================================================
-void draw() {
-  if (pantalla.equals("MENU")) {
-    dibujarMenu();
-    return;
-  }
-  if (pantalla.equals("BUSCANDO")) {
-    dibujarBuscando();
-    return;
-  }
-
-  // ---- JUEGO ----
-  background(30, 120, 40);
-  dibujarCancha();
-
-  if (modo.equals("LOCAL")) {
-    logicaLocal();
-  } else if (modo.equals("RED")) {
-    if (esServidor) logicaServidorRed();
-    else logicaClienteRed();
-  }
-
-  dibujarJugador(p1Pos, color(230, 60, 60), "P1");
-  dibujarJugador(p2Pos, color(60, 120, 230), "P2");
-  dibujarPelota();
-  actualizarYDibujarEfectos();
-  dibujarMarcador();
-
-  if (modo.equals("RED")) {
-    fill(255);
-    textAlign(LEFT, TOP);
-    textSize(14);
-    text(esServidor ? "Sos el SERVIDOR (P1 - rojo)" : "Sos el CLIENTE (P2 - azul)", 10, 10);
-  }
-
-  if (golMostrarTimer > 0) {
-    golMostrarTimer--;
-    fill(255, 255, 0);
-    textAlign(CENTER, CENTER);
-    textSize(48);
-    text(golTexto, width / 2, height / 2 - 100);
-  }
-}
-
-
-
-// lee movimiento combinando WASD + flechas (para el modo RED, un solo jugador por compu)
-int[] leerInputCombinado() {
-  int up    = (keyPressedMap['w'] || keyPressedMap['W'] || upPressed)    ? 1 : 0;
-  int down  = (keyPressedMap['s'] || keyPressedMap['S'] || downPressed)  ? 1 : 0;
-  int left  = (keyPressedMap['a'] || keyPressedMap['A'] || leftPressed)  ? 1 : 0;
-  int right = (keyPressedMap['d'] || keyPressedMap['D'] || rightPressed) ? 1 : 0;
-  int kick  = keyPressedMap[' '] ? 1 : 0;
-  return new int[]{up, down, left, right, kick};
-}
-
 // ---------------- IMPULSO / FISICA ----------------
 void aplicarImpulso(PVector vel, float ax, float ay) {
   if (ax != 0 || ay != 0) {
@@ -164,16 +94,16 @@ void actualizarPos(PVector pos, PVector vel, float friccion, float radio, boolea
 
   boolean enZonaArco = (pos.y > height/2 - arcoAlto/2 && pos.y < height/2 + arcoAlto/2);
 
-  if (pos.y - radio < campoY) {
+  if (!esJugador && pos.y - radio < campoY) {
     pos.y = campoY + radio;
     vel.y *= -0.6;
   }
-  if (pos.y + radio > campoY + campoH) {
+  if (!esJugador && pos.y + radio > campoY + campoH) {
     pos.y = campoY + campoH - radio;
     vel.y *= -0.6;
   }
 
-  if (esJugador || !enZonaArco) {
+  if (!esJugador && !enZonaArco) {
     if (pos.x - radio < campoX) {
       pos.x = campoX + radio;
       vel.x *= -0.6;
@@ -190,47 +120,6 @@ void actualizarPos(PVector pos, PVector vel, float friccion, float radio, boolea
     if (pos.x + radio > campoX + campoW + arcoAncho) {
       pos.x = campoX + campoW + arcoAncho - radio;
       vel.x *= -0.6;
-    }
-  }
-}
-
-void chocarJugadorJugador() {
-  chocarCirculos(p1Pos, p1Vel, radioJugador, p2Pos, p2Vel, radioJugador);
-}
-
-void chocarJugadorPelota(PVector jPos, PVector jVel) {
-  float dist = PVector.dist(jPos, ballPos);
-  float minDist = radioJugador + radioBall;
-  if (dist < minDist && dist > 0.001) {
-    PVector normal = PVector.sub(ballPos, jPos);
-    normal.normalize();
-
-    float overlap = minDist - dist;
-    ballPos.add(PVector.mult(normal, overlap));
-
-    float fuerza = jVel.mag() * 1.4 + 3.5;
-    ballVel.x = normal.x + jVel.x * 0.99;
-    ballVel.y = normal.y + jVel.y * 0.99;
-  }
-}
-
-void chocarCirculos(PVector posA, PVector velA, float rA, PVector posB, PVector velB, float rB) {
-  float dist = PVector.dist(posA, posB);
-  float minDist = rA + rB;
-  if (dist < minDist && dist > 0.001) {
-    PVector normal = PVector.sub(posB, posA);
-    normal.normalize();
-    float overlap = (minDist - dist) / 2;
-
-    posA.sub(PVector.mult(normal, overlap));
-    posB.add(PVector.mult(normal, overlap));
-
-    PVector relVel = PVector.sub(velB, velA);
-    float velANormal = relVel.dot(normal);
-    if (velANormal < 0) {
-      PVector impulso = PVector.mult(normal, velANormal);
-      velA.add(impulso);
-      velB.sub(impulso);
     }
   }
 }
@@ -291,70 +180,4 @@ void chequearGol() {
     golMostrarTimer = 90;
     reiniciarPosiciones();
   }
-}
-
-void dibujarCancha() {
-  noStroke();
-  for (int i = 0; i < 12; i++) {
-    if (i % 2 == 0) fill(30, 130, 45);
-    else fill(28, 118, 40);
-    rect(i * width / 12.0, 0, width / 12.0, height);
-  }
-
-  stroke(255);
-  strokeWeight(4);
-  noFill();
-  rect(campoX, campoY, campoW, campoH);
-
-  line(width/2, campoY, width/2, campoY + campoH);
-  noStroke();
-  fill(255);
-  ellipse(width/2, height/2, 90, 90);
-  fill(30, 130, 45);
-  ellipse(width/2, height/2, 84, 84);
-
-  stroke(255, 220, 0);
-  strokeWeight(6);
-  line(campoX - arcoAncho, height/2 - arcoAlto/2, campoX, height/2 - arcoAlto/2);
-  line(campoX - arcoAncho, height/2 + arcoAlto/2, campoX, height/2 + arcoAlto/2);
-  line(campoX - arcoAncho, height/2 - arcoAlto/2, campoX - arcoAncho, height/2 + arcoAlto/2);
-  line(campoX + campoW, height/2 - arcoAlto/2, campoX + campoW + arcoAncho, height/2 - arcoAlto/2);
-  line(campoX + campoW, height/2 + arcoAlto/2, campoX + campoW + arcoAncho, height/2 + arcoAlto/2);
-  line(campoX + campoW + arcoAncho, height/2 - arcoAlto/2, campoX + campoW + arcoAncho, height/2 + arcoAlto/2);
-  noStroke();
-}
-
-void dibujarJugador(PVector pos, color col, String etiqueta) {
-  stroke(0, 80);
-  strokeWeight(2);
-  fill(col);
-  ellipse(pos.x, pos.y, radioJugador * 2, radioJugador * 2);
-  noStroke();
-  fill(255);
-  textAlign(CENTER, CENTER);
-  textSize(14);
-  text(etiqueta, pos.x, pos.y);
-}
-
-void dibujarPelota() {
-  stroke(0);
-  strokeWeight(2);
-  fill(255);
-  ellipse(ballPos.x, ballPos.y, radioBall * 2, radioBall * 2);
-  noStroke();
-}
-
-void dibujarMarcador() {
-  fill(0, 150);
-  rect(width/2 - 110, 10, 220, 50, 10);
-  fill(230, 60, 60);
-  textAlign(CENTER, CENTER);
-  textSize(26);
-  text(scoreP1, width/2 - 60, 35);
-  fill(255);
-  textSize(20);
-  text("-", width/2, 35);
-  fill(60, 120, 230);
-  textSize(26);
-  text(scoreP2, width/2 + 60, 35);
 }
