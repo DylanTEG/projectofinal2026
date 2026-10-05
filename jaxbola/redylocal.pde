@@ -1,148 +1,200 @@
-// ============================================================
-//  HAXBALL TRUCHO - v2: con PATADA y MULTIJUGADOR EN RED (LAN)
-// ------------------------------------------------------------
-//  NOTA sobre la RED: usa broadcast UDP en la LAN para
-//  encontrarse solos (igual que tu ejemplo). Si arrancás los
-//  dos programas EXACTAMENTE al mismo tiempo puede que ninguno
-//  encuentre al otro y los dos terminen de "servidor": arrancá
-//  primero uno, esperá 2 segunditos, y después el otro.
-//  Tiene que ser la misma red/WiFi y el firewall tiene que
-//  dejar pasar a Processing/Java (aceptá el cartelito si sale).
-// ============================================================
+// red, controles, colisiones, actualizaciones, patada
 
-import processing.net.*;
-import java.net.*;
+// ---------------- LOGICA MODO LOCAL ----------------
+void logicaLocal() {
+  // Controles P1
+  float ax1 = 0, ay1 = 0;
+  if (keyPressedMap['w'] || keyPressedMap['W']) ay1 -= 1;
+  if (keyPressedMap['s'] || keyPressedMap['S']) ay1 += 1;
+  if (keyPressedMap['a'] || keyPressedMap['A']) ax1 -= 1;
+  if (keyPressedMap['d'] || keyPressedMap['D']) ax1 += 1;
+  p1.aplicarImpulso(ax1, ay1);
 
-// ---------------- ESTADO GENERAL ----------------
-String pantalla = "MENU";   // MENU, BUSCANDO, JUEGO
-String modo = "";           // LOCAL, RED
+  // Controles P2
+  float ax2 = 0, ay2 = 0;
+  if (upPressed) ay2 -= 1;
+  if (downPressed) ay2 += 1;
+  if (leftPressed) ax2 -= 1;
+  if (rightPressed) ax2 += 1;
+  p2.aplicarImpulso(ax2, ay2);
 
-// ---- Cancha ----
-float campoX, campoY, campoW, campoH;
-float arcoAlto = 160;
-float arcoAncho = 20;
+  // Actualizaciones de posición
+  p1.actualizar();
+  p2.actualizar();
+  pelota.actualizar();
 
-// ---- Jugadores ----
-PVector p1Pos, p1Vel;
-PVector p2Pos, p2Vel;
-float radioJugador = 22;
-float velJugador = 3;
-float friccionJugador = 0.9;
+  p1.rebotarParedes(campoX, campoY, campoW, campoH, arcoAlto, arcoAncho, true);
+  p2.rebotarParedes(campoX, campoY, campoW, campoH, arcoAlto, arcoAncho, true);
+  pelota.rebotarParedes(campoX, campoY, campoW, campoH, arcoAlto, arcoAncho, false);
 
-// ---- Pelota ----
-PVector ballPos, ballVel;
-float radioBall = 10;
-float friccionBall = 0.98;
+  // Colisiones POO
+  p1.chocarCon(p2);
+  pelota.chocarCon(p1);
+  pelota.chocarCon(p2);
 
-// ---- Patada ----
-float radioPatada = radioJugador + radioBall + 10;
-float fuerzaPatada = 7;
-int cooldownPatada = 10;
-int p1KickCD = 0;
-int p2KickCD = 0;
-ArrayList<float[]> efectosPatada = new ArrayList<float[]>();
-
-// ---- Marcador ----
-int scoreP1 = 0;
-int scoreP2 = 0;
-int golMostrarTimer = 0;
-String golTexto = "";
-
-void setup() {
-  size(900, 600);
-  campoW = width - 100;
-  campoH = height - 100;
-  campoX = (width - campoW) / 2;
-  campoY = (height - campoH) / 2;
-
-  reiniciarPosiciones();
-}
-
-void reiniciarPosiciones() {
-  p1Pos = new PVector(campoX + campoW * 0.25, height / 2);
-  p1Vel = new PVector(0, 0);
-
-  p2Pos = new PVector(campoX + campoW * 0.75, height / 2);
-  p2Vel = new PVector(0, 0);
-
-  ballPos = new PVector(width / 2, height / 2);
-  ballVel = new PVector(0, 0);
-
-  p1KickCD = 0;
-  p2KickCD = 0;
-  efectosPatada.clear();
-}
-
-
-
-void actualizarPos(PVector pos, PVector vel, float friccion, float radio, boolean esJugador) {
-  pos.add(vel);
-  vel.mult(friccion);
-
-  boolean enZonaArco = (pos.y > height/2 - arcoAlto/2 && pos.y < height/2 + arcoAlto/2);
-
-  if (!esJugador && pos.y - radio < campoY) {
-    pos.y = campoY + radio;
-    vel.y *= -0.6;
-  }
-  if (!esJugador && pos.y + radio > campoY + campoH) {
-    pos.y = campoY + campoH - radio;
-    vel.y *= -0.6;
+  for (Palo palo : palos) {
+    pelota.chocarCon(palo);
+    p1.chocarCon(palo);
+    p2.chocarCon(palo);
   }
 
-  if (!esJugador && !enZonaArco) {
-    if (pos.x - radio < campoX) {
-      pos.x = campoX + radio;
-      vel.x *= -0.6;
-    }
-    if (pos.x + radio > campoX + campoW) {
-      pos.x = campoX + campoW - radio;
-      vel.x *= -0.6;
-    }
+  // Patadas
+  if (keyPressedMap[' ']) p1.intentarPatear(pelota, efectosPatada);
+  if (enterPressed) p2.intentarPatear(pelota, efectosPatada);
+
+  chequearGol();
+}
+
+// ---------------- LOGICA MODO RED ----------------
+void logicaServidorRed() {
+  if (s != null) {
+    try {
+      Client remitente = s.available();
+      if (remitente != null) {
+        String input = remitente.readStringUntil('\n');
+        if (input != null) {
+          input = trim(input);
+          String[] partes = split(input, ' ');
+          if (partes.length == 6 && partes[0].equals("I")) {
+            rUp    = int(partes[1]) == 1;
+            rDown  = int(partes[2]) == 1;
+            rLeft  = int(partes[3]) == 1;
+            rRight = int(partes[4]) == 1;
+            rKick  = int(partes[5]) == 1;
+          }
+        }
+      }
+    } catch (Exception e) {}
+  }
+
+  int[] inLocal = leerInputCombinado();
+  float ax1 = 0, ay1 = 0;
+  if (inLocal[0] == 1) ay1 -= 1;
+  if (inLocal[1] == 1) ay1 += 1;
+  if (inLocal[2] == 1) ax1 -= 1;
+  if (inLocal[3] == 1) ax1 += 1;
+  p1.aplicarImpulso(ax1, ay1);
+
+  float ax2 = 0, ay2 = 0;
+  if (rUp) ay2 -= 1;
+  if (rDown) ay2 += 1;
+  if (rLeft) ax2 -= 1;
+  if (rRight) ax2 += 1;
+  p2.aplicarImpulso(ax2, ay2);
+
+  p1.actualizar();
+  p2.actualizar();
+  pelota.actualizar();
+
+  p1.rebotarParedes(campoX, campoY, campoW, campoH, arcoAlto, arcoAncho, true);
+  p2.rebotarParedes(campoX, campoY, campoW, campoH, arcoAlto, arcoAncho, true);
+  pelota.rebotarParedes(campoX, campoY, campoW, campoH, arcoAlto, arcoAncho, false);
+
+  p1.chocarCon(p2);
+  pelota.chocarCon(p1);
+  pelota.chocarCon(p2);
+
+  for (Palo palo : palos) {
+    pelota.chocarCon(palo);
+    p1.chocarCon(palo);
+    p2.chocarCon(palo);
+  }
+
+  boolean k1 = inLocal[4] == 1 && p1.intentarPatear(pelota, efectosPatada);
+  boolean k2 = rKick && p2.intentarPatear(pelota, efectosPatada);
+
+  chequearGol();
+  int golFlag = (golMostrarTimer == 90) ? ((golTexto.indexOf("P1") != -1) ? 1 : 2) : 0;
+
+  if (s != null) {
+    String estado = "S " + p1.pos.x + " " + p1.pos.y + " " + p2.pos.x + " " + p2.pos.y + " "
+      + pelota.pos.x + " " + pelota.pos.y + " " + scoreP1 + " " + scoreP2 + " "
+      + (k1 ? 1 : 0) + " " + (k2 ? 1 : 0) + " " + golFlag + "\n";
+    try { s.write(estado); } catch (Exception e) {}
+  }
+}
+
+void logicaClienteRed() {
+  int[] inLocal = leerInputCombinado();
+  if (c != null) {
+    try {
+      c.write("I " + inLocal[0] + " " + inLocal[1] + " " + inLocal[2] + " " + inLocal[3] + " " + inLocal[4] + "\n");
+    } catch (Exception e) {}
+  }
+
+  if (c != null) {
+    try {
+      while (c.available() > 0) {
+        String input = c.readStringUntil('\n');
+        if (input == null) break;
+        input = trim(input);
+        String[] p = split(input, ' ');
+        if (p.length == 12 && p[0].equals("S")) {
+          p1.pos.x = float(p[1]);
+          p1.pos.y = float(p[2]);
+          p2.pos.x = float(p[3]);
+          p2.pos.y = float(p[4]);
+          pelota.pos.x = float(p[5]);
+          pelota.pos.y = float(p[6]);
+          scoreP1 = int(p[7]);
+          scoreP2 = int(p[8]);
+          if (int(p[9]) == 1) efectosPatada.add(new float[]{p1.pos.x, p1.pos.y, 18});
+          if (int(p[10]) == 1) efectosPatada.add(new float[]{p2.pos.x, p2.pos.y, 18});
+          int golFlag = int(p[11]);
+          if (golFlag == 1) { golTexto = "GOL DE P1!"; golMostrarTimer = 90; }
+          else if (golFlag == 2) { golTexto = "GOL DE P2!"; golMostrarTimer = 90; }
+        }
+      }
+    } catch (Exception e) {}
+  }
+}
+
+void iniciarRed() {
+  serverIP = buscarServidorEnRed();
+  if (serverIP != null) {
+    esServidor = false;
+    myID = (int) random(1, 1000000);
+    c = new Client(this, serverIP, 12345);
   } else {
-    if (pos.x - radio < campoX - arcoAncho) {
-      pos.x = campoX - arcoAncho + radio;
-      vel.x *= -0.6;
-    }
-    if (pos.x + radio > campoX + campoW + arcoAncho) {
-      pos.x = campoX + campoW + arcoAncho - radio;
-      vel.x *= -0.6;
-    }
+    esServidor = true;
+    myID = 0;
+    s = new Server(this, 12345);
+    thread("responderDescubrimiento");
   }
+  reiniciarPosiciones();
+  pantalla = "JUEGO";
 }
 
-
-
-void actualizarYDibujarEfectos() {
-  noFill();
-  strokeWeight(3);
-  for (int i = efectosPatada.size() - 1; i >= 0; i--) {
-    float[] e = efectosPatada.get(i);
-    float vida = e[2];
-    float alpha = map(vida, 0, 18, 0, 255);
-    float tam = map(vida, 18, 0, radioJugador * 1.2, radioPatada * 1.6);
-    stroke(255, 255, 0, alpha);
-    ellipse(e[0], e[1], tam, tam);
-    e[2] = vida - 1;
-    if (e[2] <= 0) efectosPatada.remove(i);
-  }
-  noStroke();
+String buscarServidorEnRed() {
+  try {
+    DatagramSocket socket = new DatagramSocket();
+    socket.setBroadcast(true);
+    byte[] mensaje = "HAY_SERVER?".getBytes();
+    DatagramPacket paqueteEnvio = new DatagramPacket(mensaje, mensaje.length, InetAddress.getByName("255.255.255.255"), 8888);
+    socket.send(paqueteEnvio);
+    socket.setSoTimeout(1500);
+    byte[] bufferRecepcion = new byte[1024];
+    DatagramPacket paqueteRespuesta = new DatagramPacket(bufferRecepcion, bufferRecepcion.length);
+    socket.receive(paqueteRespuesta);
+    String ipDescubierta = paqueteRespuesta.getAddress().getHostAddress();
+    socket.close();
+    return ipDescubierta;
+  } catch (Exception e) { return null; }
 }
 
-// ---------------- GOLES ----------------
-void chequearGol() {
-  boolean enZonaArco = (ballPos.y > height/2 - arcoAlto/2 && ballPos.y < height/2 + arcoAlto/2);
-  if (!enZonaArco) return;
-
-  if (ballPos.x - radioBall < campoX - arcoAncho + 2) {
-    scoreP2++;
-    golTexto = "GOL DE P2!";
-    golMostrarTimer = 90;
-    reiniciarPosiciones();
-  } else if (ballPos.x + radioBall > campoX + campoW + arcoAncho - 2) {
-    scoreP1++;
-    golTexto = "GOL DE P1!";
-    golMostrarTimer = 90;
-    reiniciarPosiciones();
-  }
+void responderDescubrimiento() {
+  try {
+    DatagramSocket serverSocket = new DatagramSocket(8888);
+    byte[] bufferRecepcion = new byte[1024];
+    while (running) {
+      DatagramPacket paqueteEntrante = new DatagramPacket(bufferRecepcion, bufferRecepcion.length);
+      serverSocket.receive(paqueteEntrante);
+      String mensaje = new String(paqueteEntrante.getData(), 0, paqueteEntrante.getLength());
+      if (mensaje.equals("HAY_SERVER?")) {
+        byte[] respuesta = "ESTOY".getBytes();
+        DatagramPacket paqueteRespuesta = new DatagramPacket(respuesta, respuesta.length, paqueteEntrante.getAddress(), paqueteEntrante.getPort());
+        serverSocket.send(paqueteRespuesta);
+      }
+    }
+  } catch (Exception e) {}
 }
