@@ -9,7 +9,7 @@ int[] leerInputCombinado() {
   int down  = (keyPressedMap['s'] || keyPressedMap['S'] || downPressed)  ? 1 : 0;
   int left  = (keyPressedMap['a'] || keyPressedMap['A'] || leftPressed)  ? 1 : 0;
   int right = (keyPressedMap['d'] || keyPressedMap['D'] || rightPressed) ? 1 : 0;
-  int kick  = keyPressedMap[' '] ? 1 : 0;
+  int kick  = (keyPressedMap[' '] || keyPressedMap['x'] || keyPressedMap['X']) ? 1 : 0;
   return new int[]{up, down, left, right, kick};
 }
 
@@ -85,6 +85,8 @@ void logicaLocal() {
 
   // Patadas
   if (keyPressedMap[' ']) p1.intentarPatear(pelota, efectosPatada);
+  if (keyPressedMap['x']) p1.intentarPatear(pelota, efectosPatada);
+
   if (enterPressed) p2.intentarPatear(pelota, efectosPatada);
 
   chequearGol();
