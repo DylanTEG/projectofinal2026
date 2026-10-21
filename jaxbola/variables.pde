@@ -40,7 +40,7 @@ void setup() {
   // Crear Objetos
   p1 = new Jugador(campoX + campoW * 0.25, height / 2, 22, 3, color(230, 60, 60), "P1");
   p2 = new Jugador(campoX + campoW * 0.75, height / 2, 22, 3, color(60, 120, 230), "P2");
-  pelota = new Pelota(width / 2, height / 2, 10, 0.975, color(255));
+  pelota = new Pelota(width / 2, height / 2, 8, 0.985, color(255));
 
   // Instanciar Palos (2 del arco izquierdo, 2 del arco derecho)
   float radioPalo = 8;
