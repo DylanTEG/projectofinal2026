@@ -141,8 +141,8 @@ class Jugador extends Pelota {
     super(x, y, radio, 0.85, col);
     this.velMax = velMax;
     this.etiqueta = etiqueta;
-    this.radioPatada = radio + 10 + 10; // Rango de alcance de patada
-    this.fuerzaPatada = 8;
+    this.radioPatada = radio + 10 + 5; // Rango de alcance de patada
+    this.fuerzaPatada = 7;
     this.cooldownPatada = 10;
     this.cdActual = 0;
   }
